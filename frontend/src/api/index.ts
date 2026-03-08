@@ -40,6 +40,18 @@ export interface CoachingSessionListItem {
   status: SessionStatus
 }
 
+export interface CoachingSessionDetail extends CoachingSessionListItem {}
+
+export interface SessionCreateResponse {
+  id: string
+}
+
+export interface SessionAssetsPayload {
+  slidesFile?: File | null
+  scriptText?: string
+  contextText?: string
+}
+
 export interface ApiError {
   message: string
   status?: number
@@ -57,7 +69,10 @@ interface MockAuthData {
 
 interface MockSessionsData {
   sessions: CoachingSessionListItem[]
+  session_details?: Record<string, CoachingSessionDetail>
 }
+
+const MOCK_DELAY_MS = 1000
 
 function getCookieValue(name: string): string | null {
   const cookies = document.cookie ? document.cookie.split('; ') : []
@@ -103,6 +118,25 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
   return data
 }
 
+async function ensureSuccessResponse(response: Response): Promise<void> {
+  if (response.ok) {
+    return
+  }
+
+  const data = (await response.json().catch(() => null)) as { message?: string } | null
+  const errorMessage =
+    data && typeof data.message === 'string' ? data.message : `Request failed with status ${response.status}`
+
+  throw {
+    message: errorMessage,
+    status: response.status,
+  } satisfies ApiError
+}
+
+async function delay(milliseconds: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, milliseconds))
+}
+
 async function getMockAuthData(): Promise<MockAuthData> {
   const mockUrl = new URL('./mock/auth.json', import.meta.url).href
   const response = await fetch(mockUrl)
@@ -115,6 +149,23 @@ async function getMockSessionsData(): Promise<MockSessionsData> {
   const response = await fetch(mockUrl)
 
   return parseJsonResponse<MockSessionsData>(response)
+}
+
+function getMockSessionDetail(mockData: MockSessionsData, sessionId: string): CoachingSessionDetail {
+  const detailedSession = mockData.session_details?.[sessionId]
+  if (detailedSession) {
+    return detailedSession
+  }
+
+  const listSession = mockData.sessions.find((session) => session.id === sessionId)
+  if (listSession) {
+    return listSession
+  }
+
+  throw {
+    message: 'Session not found.',
+    status: 404,
+  } satisfies ApiError
 }
 
 export const api = {
@@ -197,6 +248,126 @@ export const api = {
       })
 
       return parseJsonResponse<CoachingSessionListItem[]>(response)
+    },
+
+    async create(): Promise<SessionCreateResponse> {
+      if (USE_MOCK) {
+        await delay(MOCK_DELAY_MS)
+        return { id: 'mock-123' }
+      }
+
+      const csrfToken = getCsrfTokenFromCookie()
+      const response = await fetch(`${API_BASE_URL}/api/v1/sessions`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'X-CSRFToken': csrfToken,
+        },
+      })
+
+      return parseJsonResponse<SessionCreateResponse>(response)
+    },
+
+    async uploadVideo(sessionId: string, videoFile: File | null): Promise<void> {
+      if (USE_MOCK) {
+        await delay(MOCK_DELAY_MS)
+        return
+      }
+
+      if (!videoFile) {
+        throw {
+          message: 'Video file is required.',
+        } satisfies ApiError
+      }
+
+      const csrfToken = getCsrfTokenFromCookie()
+      const formData = new FormData()
+      formData.append('video', videoFile)
+
+      const response = await fetch(`${API_BASE_URL}/api/v1/sessions/${sessionId}/video`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'X-CSRFToken': csrfToken,
+        },
+        body: formData,
+      })
+
+      await ensureSuccessResponse(response)
+    },
+
+    async uploadAssets(sessionId: string, payload: SessionAssetsPayload): Promise<void> {
+      const scriptText = payload.scriptText?.trim()
+      const contextText = payload.contextText?.trim()
+      const hasAssets = Boolean(payload.slidesFile || scriptText || contextText)
+
+      if (!hasAssets) {
+        return
+      }
+
+      if (USE_MOCK) {
+        await delay(MOCK_DELAY_MS)
+        return
+      }
+
+      const csrfToken = getCsrfTokenFromCookie()
+      const formData = new FormData()
+
+      if (payload.slidesFile) {
+        formData.append('slides', payload.slidesFile)
+      }
+
+      if (scriptText) {
+        formData.append('script_text', scriptText)
+      }
+
+      if (contextText) {
+        formData.append('context', contextText)
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/v1/sessions/${sessionId}/assets`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'X-CSRFToken': csrfToken,
+        },
+        body: formData,
+      })
+
+      await ensureSuccessResponse(response)
+    },
+
+    async startAnalysis(sessionId: string): Promise<void> {
+      if (USE_MOCK) {
+        await delay(MOCK_DELAY_MS)
+        return
+      }
+
+      const csrfToken = getCsrfTokenFromCookie()
+      const response = await fetch(`${API_BASE_URL}/api/v1/sessions/${sessionId}/start-analysis`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'X-CSRFToken': csrfToken,
+        },
+      })
+
+      await ensureSuccessResponse(response)
+    },
+
+    async getById(sessionId: string): Promise<CoachingSessionDetail> {
+      if (USE_MOCK) {
+        await delay(MOCK_DELAY_MS)
+        const mockData = await getMockSessionsData()
+        return getMockSessionDetail(mockData, sessionId)
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/v1/sessions/${sessionId}`, {
+        method: 'GET',
+        credentials: 'include',
+      })
+
+      return parseJsonResponse<CoachingSessionDetail>(response)
     },
   },
 }
