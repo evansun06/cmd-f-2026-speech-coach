@@ -10,11 +10,19 @@ from django.core.management import CommandError, call_command
 from django.db import IntegrityError
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
 from ml.enqueue import enqueue_random_sleep_demo_job, enqueue_random_sleep_demo_jobs
 from sessions.models import (
+    CoachAgentExecution,
+    CoachAgentExecutionStatus,
+    CoachAgentKind,
+    CoachLedgerEntry,
+    CoachOrchestrationRun,
+    CoachOrchestrationRunStatus,
+    LedgerEntryKind,
     MAX_SUPPLEMENTARY_PDF_FILE_SIZE_BYTES,
     MAX_VIDEO_FILE_SIZE_BYTES,
     CoachingSession,
@@ -223,6 +231,92 @@ class CoachingSessionModelTests(TestCase):
         )
 
 
+class CoachOrchestrationModelsTests(TestCase):
+    def setUp(self):
+        User = get_user_model()
+        self.user = User.objects.create_user(
+            username="orchestrator@example.com",
+            email="orchestrator@example.com",
+            password="password123",
+        )
+        self.session = CoachingSession.objects.create(
+            user=self.user,
+            status=SessionStatus.PROCESSING_COACH,
+            video_file="sessions/videos/2026/03/08/demo.mp4",
+        )
+
+    def test_run_index_must_be_unique_per_session(self):
+        CoachOrchestrationRun.objects.create(
+            session=self.session,
+            run_index=1,
+            status=CoachOrchestrationRunStatus.QUEUED,
+        )
+
+        with self.assertRaises(IntegrityError):
+            CoachOrchestrationRun.objects.create(
+                session=self.session,
+                run_index=1,
+                status=CoachOrchestrationRunStatus.FAILED,
+            )
+
+    def test_only_one_active_run_allowed_per_session(self):
+        CoachOrchestrationRun.objects.create(
+            session=self.session,
+            run_index=1,
+            status=CoachOrchestrationRunStatus.QUEUED,
+        )
+
+        with self.assertRaises(IntegrityError):
+            CoachOrchestrationRun.objects.create(
+                session=self.session,
+                run_index=2,
+                status=CoachOrchestrationRunStatus.PROCESSING,
+            )
+
+    def test_agent_window_bounds_are_validated(self):
+        run = CoachOrchestrationRun.objects.create(
+            session=self.session,
+            run_index=1,
+            status=CoachOrchestrationRunStatus.PROCESSING,
+        )
+
+        with self.assertRaises(IntegrityError):
+            CoachAgentExecution.objects.create(
+                run=run,
+                execution_index=1,
+                agent_kind=CoachAgentKind.SUBAGENT,
+                agent_name="subagent-1",
+                status=CoachAgentExecutionStatus.PROCESSING,
+                window_start_ms=40_000,
+                window_end_ms=10_000,
+            )
+
+    def test_ledger_sequence_must_be_unique_per_run(self):
+        run = CoachOrchestrationRun.objects.create(
+            session=self.session,
+            run_index=1,
+            status=CoachOrchestrationRunStatus.PROCESSING,
+        )
+        CoachLedgerEntry.objects.create(
+            run=run,
+            sequence=1,
+            entry_kind=LedgerEntryKind.SUBAGENT_NOTE,
+            agent_kind=CoachAgentKind.SUBAGENT,
+            agent_name="subagent-1",
+            content="First note",
+        )
+
+        with self.assertRaises(IntegrityError):
+            CoachLedgerEntry.objects.create(
+                run=run,
+                sequence=1,
+                entry_kind=LedgerEntryKind.FLAGSHIP_IMPRESSION,
+                agent_kind=CoachAgentKind.FLAGSHIP_PERIODIC,
+                agent_name="flagship",
+                content="Duplicate sequence",
+            )
+
+
 class CoachingSessionApiTests(TestCase):
     @classmethod
     def setUpClass(cls):
@@ -353,6 +447,11 @@ class CoachingSessionApiTests(TestCase):
         self.assertIsNone(response.data["supplementary_pdf_2_url"])
         self.assertIsNone(response.data["supplementary_pdf_3_url"])
         self.assertEqual(response.data["speaker_context"], "")
+        self.assertEqual(response.data["coach_progress"]["status"], "pending")
+        self.assertEqual(response.data["coach_progress"]["current_stage"], "")
+        self.assertEqual(response.data["coach_progress"]["agent_progress"], [])
+        self.assertEqual(response.data["coach_progress"]["stages"], [])
+        self.assertEqual(response.data["coach_progress"]["latest_ledger_sequence"], 0)
 
     def test_get_session_returns_404_for_non_owner(self):
         session = CoachingSession.objects.create(user=self.other_user)
@@ -374,6 +473,106 @@ class CoachingSessionApiTests(TestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["status"], SessionStatus.QUEUED_ML)
+        self.assertEqual(response.data["coach_progress"]["status"], "processing_coach")
+
+    def test_get_session_returns_agent_progress_from_active_orchestration_run(self):
+        session = CoachingSession.objects.create(
+            user=self.user,
+            title="Session Detail",
+            status=SessionStatus.PROCESSING_COACH,
+            video_file="sessions/videos/2026/03/08/demo.mp4",
+        )
+        old_run = CoachOrchestrationRun.objects.create(
+            session=session,
+            run_index=1,
+            status=CoachOrchestrationRunStatus.COMPLETED,
+            latest_ledger_sequence=2,
+            completed_at=timezone.now(),
+        )
+        new_run = CoachOrchestrationRun.objects.create(
+            session=session,
+            run_index=2,
+            status=CoachOrchestrationRunStatus.PROCESSING,
+            latest_ledger_sequence=5,
+            started_at=timezone.now(),
+        )
+        CoachAgentExecution.objects.create(
+            run=old_run,
+            execution_index=1,
+            agent_kind=CoachAgentKind.SUBAGENT,
+            agent_name="old-subagent",
+            status=CoachAgentExecutionStatus.COMPLETED,
+            started_at=timezone.now(),
+            finished_at=timezone.now(),
+        )
+        first_execution = CoachAgentExecution.objects.create(
+            run=new_run,
+            execution_index=1,
+            agent_kind=CoachAgentKind.SUBAGENT,
+            agent_name="subagent-window-1",
+            status=CoachAgentExecutionStatus.QUEUED,
+            window_start_ms=0,
+            window_end_ms=30_000,
+        )
+        second_execution = CoachAgentExecution.objects.create(
+            run=new_run,
+            execution_index=2,
+            agent_kind=CoachAgentKind.FLAGSHIP_PERIODIC,
+            agent_name="flagship-pass-1",
+            status=CoachAgentExecutionStatus.COMPLETED,
+            input_seq_from=1,
+            input_seq_to=4,
+            output_seq_to=5,
+            started_at=timezone.now(),
+            finished_at=timezone.now(),
+        )
+        CoachLedgerEntry.objects.create(
+            run=new_run,
+            agent_execution=second_execution,
+            sequence=5,
+            entry_kind=LedgerEntryKind.FLAGSHIP_IMPRESSION,
+            agent_kind=CoachAgentKind.FLAGSHIP_PERIODIC,
+            agent_name="flagship-pass-1",
+            content="Confidence improved over the final minute.",
+            payload={
+                "title": "Global trend",
+                "evidence_refs": ["01:00-01:40"],
+            },
+        )
+
+        detail_url = reverse("api:session-detail", kwargs={"id": session.id})
+        response = self.client.get(detail_url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        coach_progress = response.data["coach_progress"]
+        self.assertEqual(coach_progress["status"], "processing_coach")
+        self.assertEqual(coach_progress["active_run_id"], str(new_run.id))
+        self.assertEqual(coach_progress["run_index"], 2)
+        self.assertEqual(coach_progress["latest_ledger_sequence"], 5)
+        self.assertEqual(coach_progress["current_stage"], "agent-2")
+        self.assertEqual(len(coach_progress["agent_progress"]), 2)
+        self.assertEqual(
+            coach_progress["agent_progress"][0]["agent_execution_id"],
+            str(first_execution.id),
+        )
+        self.assertEqual(coach_progress["agent_progress"][0]["status"], "pending")
+        self.assertEqual(
+            coach_progress["agent_progress"][1]["agent_execution_id"],
+            str(second_execution.id),
+        )
+        self.assertEqual(coach_progress["agent_progress"][1]["status"], "completed")
+        self.assertEqual(len(coach_progress["stages"]), 2)
+        self.assertEqual(coach_progress["stages"][0]["stage_key"], "agent-1")
+        self.assertEqual(coach_progress["stages"][1]["stage_key"], "agent-2")
+        self.assertEqual(len(coach_progress["stages"][1]["notes"]), 1)
+        self.assertEqual(
+            coach_progress["stages"][1]["notes"][0]["title"],
+            "Global trend",
+        )
+        self.assertEqual(
+            coach_progress["stages"][1]["notes"][0]["evidence_refs"],
+            ["01:00-01:40"],
+        )
 
     def test_upload_video_moves_session_to_media_attached(self):
         session = CoachingSession.objects.create(user=self.user, status=SessionStatus.DRAFT)
