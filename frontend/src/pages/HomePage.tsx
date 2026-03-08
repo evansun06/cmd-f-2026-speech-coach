@@ -13,6 +13,7 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  IconButton,
   Stack,
   TextField,
   Typography,
@@ -73,9 +74,8 @@ function HomePage() {
   const [modalStep, setModalStep] = useState(1)
   const [videoSource, setVideoSource] = useState<VideoSource | null>(null)
   const [videoFile, setVideoFile] = useState<File | null>(null)
-  const [slidesFile, setSlidesFile] = useState<File | null>(null)
-  const [scriptText, setScriptText] = useState('')
-  const [contextText, setContextText] = useState('')
+  const [supportingPdfFiles, setSupportingPdfFiles] = useState<File[]>([])
+  const [supportingText, setSupportingText] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [modalError, setModalError] = useState<string | null>(null)
 
@@ -129,9 +129,8 @@ function HomePage() {
     setModalStep(1)
     setVideoSource(null)
     setVideoFile(null)
-    setSlidesFile(null)
-    setScriptText('')
-    setContextText('')
+    setSupportingPdfFiles([])
+    setSupportingText('')
     setIsSubmitting(false)
     setModalError(null)
   }
@@ -156,20 +155,38 @@ function HomePage() {
     setModalError(null)
   }
 
-  const handleSlidesFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0] ?? null
-    setSlidesFile(file)
+  const handleSupportingPdfFilesChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const incomingFiles = Array.from(event.target.files ?? [])
+    const allPdfFiles = incomingFiles.filter(
+      (file) => file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'),
+    )
+
+    if (allPdfFiles.length !== incomingFiles.length) {
+      setModalError('Only PDF files are allowed for supporting materials.')
+      return
+    }
+
+    setSupportingPdfFiles((previous) => {
+      const next = [...previous, ...allPdfFiles].slice(0, 3)
+      if (previous.length + allPdfFiles.length > 3) {
+        setModalError('You can upload up to 3 PDFs.')
+      } else {
+        setModalError(null)
+      }
+      return next
+    })
+
+    event.target.value = ''
+  }
+
+  const handleRemoveSupportingPdf = (indexToRemove: number) => {
+    setSupportingPdfFiles((previous) => previous.filter((_, index) => index !== indexToRemove))
     setModalError(null)
   }
 
   const handleNextStep = () => {
     if (!videoSource) {
       setModalError('Choose a video source to continue.')
-      return
-    }
-
-    if (videoSource === 'upload' && !videoFile) {
-      setModalError('Select one video file to continue.')
       return
     }
 
@@ -208,11 +225,10 @@ function HomePage() {
       await api.sessions.uploadVideo(sessionId, videoSource === 'upload' ? videoFile : null)
 
       const optionalAssets: SessionAssetsPayload = {
-        slidesFile,
-        scriptText,
-        contextText,
+        pdfFiles: supportingPdfFiles,
+        supportingText,
       }
-      const hasOptionalAssets = Boolean(slidesFile || scriptText.trim() || contextText.trim())
+      const hasOptionalAssets = Boolean(supportingPdfFiles.length > 0 || supportingText.trim())
 
       if (hasOptionalAssets) {
         await api.sessions.uploadAssets(sessionId, optionalAssets)
@@ -347,60 +363,91 @@ function HomePage() {
                 </Stack>
 
                 {videoSource === 'upload' && (
-                  <Stack spacing={1}>
-                    <Button component="label" variant="outlined" sx={{ alignSelf: 'flex-start' }}>
-                      Choose Video
-                      <input hidden type="file" accept="video/*" onChange={handleVideoFileChange} />
-                    </Button>
-                    <Typography color="text.secondary" variant="body2">
-                      {videoFile ? `Selected: ${videoFile.name}` : 'No file selected'}
-                    </Typography>
-                    <Typography color="text.secondary" variant="caption">
-                      One video per session.
-                    </Typography>
-                  </Stack>
-                )}
-
-                {videoSource === 'record' && (
-                  <Alert severity="info">
-                    Record Now is selectable now. In mock mode this flow continues; in real mode use Upload Video.
-                  </Alert>
+                  <Typography color="text.secondary" variant="body2">
+                    Continue to add your video and optional materials.
+                  </Typography>
                 )}
               </Stack>
             ) : (
               <Stack spacing={2}>
-                <Typography variant="h6">Optional Context</Typography>
-                <Typography color="text.secondary" variant="body2">
-                  Add supporting assets before analysis starts.
-                </Typography>
-
                 <Stack spacing={1}>
+                  <Typography variant="h6">Upload your presentation video</Typography>
                   <Button component="label" variant="outlined" sx={{ alignSelf: 'flex-start' }}>
-                    Upload Slide Deck
-                    <input hidden type="file" accept=".pdf,.ppt,.pptx,.key" onChange={handleSlidesFileChange} />
+                    Choose Video
+                    <input hidden type="file" accept="video/*" onChange={handleVideoFileChange} />
                   </Button>
                   <Typography color="text.secondary" variant="body2">
-                    {slidesFile ? `Selected: ${slidesFile.name}` : 'No slide deck selected'}
+                    {videoFile ? `Selected: ${videoFile.name}` : 'No file selected'}
+                  </Typography>
+                  <Typography color="text.secondary" variant="caption">
+                    One video per session. Multiple uploads are not allowed.
                   </Typography>
                 </Stack>
 
-                <TextField
-                  label="Script Text"
-                  multiline
-                  minRows={4}
-                  value={scriptText}
-                  onChange={(event) => setScriptText(event.target.value)}
-                  placeholder="Paste your talk script (optional)"
-                  fullWidth
-                />
+                {videoSource === 'record' && (
+                  <Alert severity="info">
+                    Record Now is still a placeholder. In mock mode you can continue without uploading a video file.
+                  </Alert>
+                )}
+
+                <Stack spacing={1}>
+                  <Typography variant="subtitle2">Supporting materials (optional)</Typography>
+                  <Button
+                    component="label"
+                    variant="outlined"
+                    sx={{ alignSelf: 'flex-start' }}
+                    disabled={supportingPdfFiles.length >= 3}
+                  >
+                    Upload PDFs
+                    <input
+                      hidden
+                      type="file"
+                      accept=".pdf,application/pdf"
+                      multiple
+                      onChange={handleSupportingPdfFilesChange}
+                    />
+                  </Button>
+                  <Typography color="text.secondary" variant="caption">
+                    Add up to 3 PDFs and/or any notes or context.
+                  </Typography>
+
+                  {supportingPdfFiles.length > 0 ? (
+                    <Stack spacing={0.75}>
+                      {supportingPdfFiles.map((file, index) => (
+                        <Stack
+                          key={`${file.name}-${index}`}
+                          direction="row"
+                          spacing={1}
+                          alignItems="center"
+                          justifyContent="space-between"
+                          sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, px: 1.25, py: 0.75 }}
+                        >
+                          <Typography variant="body2">{file.name}</Typography>
+                          <IconButton
+                            aria-label={`Remove ${file.name}`}
+                            size="small"
+                            onClick={() => handleRemoveSupportingPdf(index)}
+                          >
+                            ×
+                          </IconButton>
+                        </Stack>
+                      ))}
+                    </Stack>
+                  ) : (
+                    <Typography color="text.secondary" variant="body2">
+                      No PDFs selected
+                    </Typography>
+                  )}
+                </Stack>
 
                 <TextField
-                  label="Speaking Context"
+                  label="Supporting notes (optional)"
                   multiline
-                  minRows={3}
-                  value={contextText}
-                  onChange={(event) => setContextText(event.target.value)}
-                  placeholder="Audience, setting, goals, or constraints (optional)"
+                  minRows={5}
+                  value={supportingText}
+                  onChange={(event) => setSupportingText(event.target.value)}
+                  placeholder="Add any notes, script excerpts, audience context, or speaking goals"
+                  helperText="Add up to 3 PDFs and/or any notes or context"
                   fullWidth
                 />
               </Stack>

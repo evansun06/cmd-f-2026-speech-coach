@@ -77,9 +77,28 @@ export interface SessionCreateResponse {
 }
 
 export interface SessionAssetsPayload {
-  slidesFile?: File | null
-  scriptText?: string
-  contextText?: string
+  pdfFiles?: File[] | null
+  supportingText?: string
+}
+
+export type ChatRole = 'user' | 'assistant'
+
+export interface ChatMessage {
+  id: string
+  role: ChatRole
+  content: string
+  created_at: string
+}
+
+export interface ChatSendResponse {
+  response_id: string
+}
+
+export interface ChatStreamCallbacks {
+  onReasoningToken?: (token: string) => void
+  onAnswerToken?: (token: string) => void
+  onComplete?: () => void
+  onError?: (message: string) => void
 }
 
 export interface ApiError {
@@ -101,6 +120,8 @@ interface MockSessionsData {
   sessions: CoachingSessionListItem[]
   session_details?: Record<string, CoachingSessionDetail>
   timelines_by_session?: Record<string, Annotation[]>
+  live_notes_by_session?: Record<string, string[]>
+  chat_history_by_session?: Record<string, ChatMessage[]>
 }
 
 const MOCK_DELAY_MS = 1000
@@ -232,6 +253,24 @@ function getMockSessionDetail(mockData: MockSessionsData, sessionId: string): Co
 
 function getMockTimeline(mockData: MockSessionsData, sessionId: string): Annotation[] {
   return mockData.timelines_by_session?.[sessionId] ?? []
+}
+
+function getMockLiveNotes(mockData: MockSessionsData, sessionId: string): string[] {
+  const mappedNotes = mockData.live_notes_by_session?.[sessionId]
+  if (mappedNotes) {
+    return mappedNotes
+  }
+
+  const sessionDetail = mockData.session_details?.[sessionId] as { live_notes?: string[] } | undefined
+  return sessionDetail?.live_notes ?? []
+}
+
+function getMockChatHistory(mockData: MockSessionsData, sessionId: string): ChatMessage[] {
+  return mockData.chat_history_by_session?.[sessionId] ?? []
+}
+
+function buildMockResponseId(): string {
+  return `mock-resp-${Math.random().toString(36).slice(2, 10)}`
 }
 
 export const api = {
@@ -396,9 +435,9 @@ export const api = {
     },
 
     async uploadAssets(sessionId: string, payload: SessionAssetsPayload): Promise<void> {
-      const scriptText = payload.scriptText?.trim()
-      const contextText = payload.contextText?.trim()
-      const hasAssets = Boolean(payload.slidesFile || scriptText || contextText)
+      const supportingText = payload.supportingText?.trim() ?? ''
+      const pdfFiles = payload.pdfFiles ?? []
+      const hasAssets = pdfFiles.length > 0 || Boolean(supportingText)
 
       if (!hasAssets) {
         return
@@ -412,16 +451,12 @@ export const api = {
       const csrfToken = getCsrfTokenFromCookie()
       const formData = new FormData()
 
-      if (payload.slidesFile) {
-        formData.append('slides', payload.slidesFile)
+      for (const pdfFile of pdfFiles) {
+        formData.append('supporting_pdfs', pdfFile)
       }
 
-      if (scriptText) {
-        formData.append('script_text', scriptText)
-      }
-
-      if (contextText) {
-        formData.append('context', contextText)
+      if (supportingText) {
+        formData.append('supporting_text', supportingText)
       }
 
       // TODO: real endpoint - POST /api/v1/sessions/:id/assets
@@ -486,6 +521,206 @@ export const api = {
       })
 
       return parseJsonResponse<Annotation[]>(response)
+    },
+
+    async getLiveNotes(sessionId: string): Promise<string[]> {
+      if (USE_MOCK) {
+        await delay(250)
+        const mockData = await getMockSessionsData()
+        return getMockLiveNotes(mockData, sessionId)
+      }
+
+      // TODO: real endpoint - replace with backend live note stream/source when available
+      return []
+    },
+  },
+
+  chat: {
+    async getHistory(sessionId: string): Promise<ChatMessage[]> {
+      if (USE_MOCK) {
+        await delay(400)
+        const mockData = await getMockSessionsData()
+        return getMockChatHistory(mockData, sessionId)
+      }
+
+      // TODO: real endpoint - GET /api/v1/sessions/:id/chat/history
+      const response = await fetch(`${API_BASE_URL}/api/v1/sessions/${sessionId}/chat/history`, {
+        method: 'GET',
+        credentials: 'include',
+      })
+
+      return parseJsonResponse<ChatMessage[]>(response)
+    },
+
+    async sendMessage(sessionId: string, message: string): Promise<ChatSendResponse> {
+      if (USE_MOCK) {
+        await delay(300)
+        if (!message.trim()) {
+          throw {
+            message: 'Message is required.',
+            status: 400,
+          } satisfies ApiError
+        }
+
+        return { response_id: buildMockResponseId() }
+      }
+
+      const csrfToken = getCsrfTokenFromCookie()
+      // TODO: real endpoint - POST /api/v1/sessions/:id/chat/messages
+      const response = await fetch(`${API_BASE_URL}/api/v1/sessions/${sessionId}/chat/messages`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': csrfToken,
+        },
+        body: JSON.stringify({ content: message }),
+      })
+
+      return parseJsonResponse<ChatSendResponse>(response)
+    },
+
+    async streamResponse(sessionId: string, responseId: string, callbacks: ChatStreamCallbacks): Promise<void> {
+      if (USE_MOCK) {
+        const reasoningTokens = [
+          'Scanning',
+          'delivery',
+          'patterns',
+          'and',
+          'timing,',
+          'comparing',
+          'voice',
+          'pace',
+          'against',
+          'strong',
+          'segments,',
+          'then',
+          'checking',
+          'eye-contact',
+          'drift',
+          'and',
+          'filler-word',
+          'clusters.',
+        ]
+        const answerTokens = [
+          'You',
+          'improved',
+          'clarity,',
+          'slow',
+          'transitions,',
+          'and',
+          'hold',
+          'camera',
+          'focus',
+          'one',
+          'beat',
+          'longer.',
+        ]
+
+        for (const token of reasoningTokens) {
+          await delay(110)
+          callbacks.onReasoningToken?.(`${token} `)
+        }
+
+        for (const token of answerTokens) {
+          await delay(100)
+          callbacks.onAnswerToken?.(`${token} `)
+        }
+
+        callbacks.onComplete?.()
+        return
+      }
+
+      await new Promise<void>((resolve, reject) => {
+        let resolved = false
+        // TODO: real endpoint - GET /api/v1/sessions/:id/chat/streams/:response_id
+        const eventSource = new EventSource(`${API_BASE_URL}/api/v1/sessions/${sessionId}/chat/streams/${responseId}`, {
+          withCredentials: true,
+        })
+
+        const handleComplete = () => {
+          if (resolved) {
+            return
+          }
+          resolved = true
+          eventSource.close()
+          callbacks.onComplete?.()
+          resolve()
+        }
+
+        const handleTokenPayload = (payload: unknown) => {
+          if (!payload || typeof payload !== 'object') {
+            return
+          }
+
+          const token = 'token' in payload && typeof payload.token === 'string' ? payload.token : ''
+          const phase = 'phase' in payload && typeof payload.phase === 'string' ? payload.phase : 'answer'
+
+          if (!token) {
+            return
+          }
+
+          if (phase === 'reasoning') {
+            callbacks.onReasoningToken?.(token)
+          } else {
+            callbacks.onAnswerToken?.(token)
+          }
+        }
+
+        eventSource.onmessage = (event) => {
+          try {
+            const payload = JSON.parse(event.data) as unknown
+            handleTokenPayload(payload)
+          } catch {
+            callbacks.onAnswerToken?.(event.data)
+          }
+        }
+
+        eventSource.addEventListener('token', (event) => {
+          const messageEvent = event as MessageEvent<string>
+          try {
+            const payload = JSON.parse(messageEvent.data) as unknown
+            handleTokenPayload(payload)
+          } catch {
+            callbacks.onAnswerToken?.(messageEvent.data)
+          }
+        })
+
+        eventSource.addEventListener('complete', () => {
+          handleComplete()
+        })
+
+        eventSource.addEventListener('error', (event) => {
+          const messageEvent = event as MessageEvent<string>
+          if (messageEvent.data) {
+            callbacks.onError?.(messageEvent.data)
+          } else {
+            callbacks.onError?.('Chat stream failed.')
+          }
+          if (!resolved) {
+            resolved = true
+            eventSource.close()
+            reject(
+              {
+                message: 'Chat stream failed.',
+              } satisfies ApiError,
+            )
+          }
+        })
+
+        eventSource.onerror = () => {
+          if (!resolved) {
+            resolved = true
+            eventSource.close()
+            callbacks.onError?.('Chat stream connection lost.')
+            reject(
+              {
+                message: 'Chat stream connection lost.',
+              } satisfies ApiError,
+            )
+          }
+        }
+      })
     },
   },
 }

@@ -29,6 +29,20 @@
       "created_at": "2026-03-08T12:00:00Z",
       "duration_seconds": 392,
       "status": "processing_coach",
+      "live_notes": [
+        "Opening sentence lands clearly, but pace is above target in first 15 seconds.",
+        "Two filler clusters detected near the product framing transition.",
+        "Eye contact remains strong on key claims, then drifts when recalling figures.",
+        "Shoulders tighten slightly while introducing pricing assumptions.",
+        "Voice projection is steady, but sentence endings drop in volume.",
+        "Clear emphasis on customer pain points; this section sounds confident.",
+        "Hand gestures pause for ~20 seconds during the TAM explanation.",
+        "Breathing cadence normalizes after the first minute and pacing improves.",
+        "Frequent 'um' appears before metric-heavy statements.",
+        "Posture remains upright with brief forward lean for emphasis.",
+        "Great pause before the roadmap section, increases clarity.",
+        "Eye-line returns to camera quickly after glance-away moments."
+      ],
       "coach_progress": {
         "status": "processing_coach",
         "current_stage": "clarity",
@@ -125,6 +139,45 @@
         ]
       }
     }
+  },
+  "live_notes_by_session": {
+    "mock-123": [
+      "Opening sentence lands clearly, but pace is above target in first 15 seconds.",
+      "Two filler clusters detected near the product framing transition.",
+      "Eye contact remains strong on key claims, then drifts when recalling figures.",
+      "Shoulders tighten slightly while introducing pricing assumptions.",
+      "Voice projection is steady, but sentence endings drop in volume.",
+      "Clear emphasis on customer pain points; this section sounds confident.",
+      "Hand gestures pause for ~20 seconds during the TAM explanation.",
+      "Breathing cadence normalizes after the first minute and pacing improves.",
+      "Frequent 'um' appears before metric-heavy statements.",
+      "Posture remains upright with brief forward lean for emphasis.",
+      "Great pause before the roadmap section, increases clarity.",
+      "Eye-line returns to camera quickly after glance-away moments."
+    ],
+    "sess_002": [
+      "Standup opener is concise; speed increases on blockers update.",
+      "One noticeable filler burst when switching from wins to risks.",
+      "Camera focus shifts down-right while reading next talking point.",
+      "Tone is confident, but transitions could use a short pause.",
+      "Posture remains solid and neutral throughout update."
+    ]
+  },
+  "chat_history_by_session": {
+    "sess_001": [
+      {
+        "id": "chat-001",
+        "role": "user",
+        "content": "What should I improve first for my next rehearsal?",
+        "created_at": "2026-03-06T17:01:00Z"
+      },
+      {
+        "id": "chat-002",
+        "role": "assistant",
+        "content": "Prioritize pacing in your opening minute, then tighten transitions between financial points.",
+        "created_at": "2026-03-06T17:01:20Z"
+      }
+    ]
   },
   "timelines_by_session": {
     "mock-123": [
