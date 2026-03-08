@@ -10,6 +10,12 @@
 - Backend integration: sessions fully connected (SESSIONS_USE_MOCK = false)
 - Record Now: complete — MediaRecorder API, camera preview, webm blob 
   upload, backend updated to accept webm
+- Dashboard VideoPlayer: now uses session `video_file_url` directly
+- Dashboard timeline: click-to-seek implemented on annotation markers
+- Dashboard timeline: duration spans, playhead sync, and severity legend 
+  implemented
+- `/api/v1/sessions/:id/video-stream` is unused by frontend and can be 
+  removed by backend team
 
 ## USE_MOCK Status
 - api.auth → AUTH_USE_MOCK = false (real backend ✅)

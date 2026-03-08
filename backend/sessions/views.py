@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import mimetypes
 import uuid
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
-from django.http import Http404
+from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import status
@@ -210,4 +211,35 @@ def get_session_chat_context(request: Request, id: str) -> Response:
 @api_view(["GET"])
 def get_session_video_stream(request: Request, id: str) -> Response:
     """Stream the session video resource for playback."""
-    return Response({}, status=status.HTTP_200_OK)
+    session = _get_owned_session(user=request.user, session_id=id)
+
+    if not session.video_file:
+        return Response(
+            {"detail": "Video not available"},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    try:
+        file_path = session.video_file.path
+    except (ValueError, NotImplementedError):
+        return Response(
+            {"detail": "Video not available"},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    if not session.video_file.storage.exists(session.video_file.name):
+        return Response(
+            {"detail": "Video not available"},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    content_type, _ = mimetypes.guess_type(file_path)
+    content_type = content_type or "video/mp4"
+
+    response = FileResponse(
+        open(file_path, "rb"),
+        content_type=content_type,
+        as_attachment=False,
+    )
+    response["Accept-Ranges"] = "bytes"
+    return response
