@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from functools import partial
 from typing import Any
 
@@ -60,6 +61,19 @@ def _normalize_response_metadata(response: Any) -> dict[str, Any]:
     return dict(response_metadata)
 
 
+def _normalize_structured_output(response: Any) -> dict[str, Any]:
+    """Convert structured model output into a plain dictionary payload."""
+    if isinstance(response, dict):
+        return dict(response)
+    if hasattr(response, "model_dump"):
+        model_dump = getattr(response, "model_dump")
+        if callable(model_dump):
+            dumped = model_dump()
+            if isinstance(dumped, dict):
+                return dict(dumped)
+    return {}
+
+
 def _invoke_reasoning_model(
     state: ReasoningState, *, models: ReasoningModels
 ) -> ReasoningState:
@@ -68,12 +82,26 @@ def _invoke_reasoning_model(
 
     role = state["role"]
     model = get_reasoning_model(models, role)
-    response = model.invoke(
-        [
-            SystemMessage(content=state["system_prompt"]),
-            HumanMessage(content=state["user_prompt"]),
-        ]
-    )
+    messages = [
+        SystemMessage(content=state["system_prompt"]),
+        HumanMessage(content=state["user_prompt"]),
+    ]
+
+    structured_schema = state.get("structured_schema")
+    if isinstance(structured_schema, dict):
+        structured_response = model.with_structured_output(schema=structured_schema).invoke(
+            messages
+        )
+        structured_output = _normalize_structured_output(structured_response)
+        output_text = json.dumps(structured_output, sort_keys=True)
+        usage = _normalize_usage(structured_response)
+        response_metadata = _normalize_response_metadata(structured_response)
+    else:
+        response = model.invoke(messages)
+        structured_output = {}
+        output_text = _normalize_response_content(getattr(response, "content", ""))
+        usage = _normalize_usage(response)
+        response_metadata = _normalize_response_metadata(response)
 
     model_name = (
         models.subagent_model_name
@@ -83,9 +111,10 @@ def _invoke_reasoning_model(
     return {
         **state,
         "model_name": model_name,
-        "output_text": _normalize_response_content(getattr(response, "content", "")),
-        "usage": _normalize_usage(response),
-        "response_metadata": _normalize_response_metadata(response),
+        "output_text": output_text,
+        "usage": usage,
+        "response_metadata": response_metadata,
+        "structured_output": structured_output,
     }
 
 
@@ -110,7 +139,10 @@ def run_reasoning_graph(*, graph: Any, reasoning_input: ReasoningInput) -> Reaso
         "system_prompt": reasoning_input.system_prompt,
         "user_prompt": reasoning_input.user_prompt,
         "request_metadata": dict(reasoning_input.metadata),
+        "request_payload": dict(reasoning_input.request_payload),
     }
+    if isinstance(reasoning_input.structured_schema, dict):
+        initial_state["structured_schema"] = dict(reasoning_input.structured_schema)
     final_state: ReasoningState = graph.invoke(initial_state)
     return ReasoningResult(
         role=reasoning_input.role,
@@ -119,4 +151,5 @@ def run_reasoning_graph(*, graph: Any, reasoning_input: ReasoningInput) -> Reaso
         usage=dict(final_state.get("usage", {})),
         response_metadata=dict(final_state.get("response_metadata", {})),
         request_metadata=dict(reasoning_input.metadata),
+        structured_output=dict(final_state.get("structured_output", {})),
     )

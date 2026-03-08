@@ -45,6 +45,29 @@ def run_subagent_reasoning(
     )
 
 
+def run_subagent_structured_reasoning(
+    *,
+    system_prompt: str,
+    user_prompt: str,
+    structured_schema: dict[str, Any],
+    metadata: dict[str, Any] | None = None,
+    request_payload: dict[str, Any] | None = None,
+    graph: Any | None = None,
+) -> ReasoningResult:
+    """Run subagent reasoning and request a structured model response payload."""
+    return run_reasoning(
+        reasoning_input=ReasoningInput(
+            role="subagent",
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            metadata=dict(metadata or {}),
+            request_payload=dict(request_payload or {}),
+            structured_schema=dict(structured_schema),
+        ),
+        graph=graph,
+    )
+
+
 def run_primary_reasoning(
     *,
     system_prompt: str,
@@ -59,6 +82,29 @@ def run_primary_reasoning(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             metadata=dict(metadata or {}),
+        ),
+        graph=graph,
+    )
+
+
+def run_primary_structured_reasoning(
+    *,
+    system_prompt: str,
+    user_prompt: str,
+    structured_schema: dict[str, Any],
+    metadata: dict[str, Any] | None = None,
+    request_payload: dict[str, Any] | None = None,
+    graph: Any | None = None,
+) -> ReasoningResult:
+    """Run primary reasoning and request a structured model response payload."""
+    return run_reasoning(
+        reasoning_input=ReasoningInput(
+            role="primary",
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            metadata=dict(metadata or {}),
+            request_payload=dict(request_payload or {}),
+            structured_schema=dict(structured_schema),
         ),
         graph=graph,
     )
