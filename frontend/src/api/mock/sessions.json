@@ -22,10 +22,14 @@
       "status": "draft"
     }
   ],
+  "create_session_response": {
+    "id": "mock-123",
+    "title": "Q3 Investor Pitch"
+  },
   "session_details": {
     "mock-123": {
       "id": "mock-123",
-      "title": "Mock Session Run",
+      "title": "Q3 Investor Pitch",
       "created_at": "2026-03-08T12:00:00Z",
       "duration_seconds": 392,
       "status": "processing_coach",

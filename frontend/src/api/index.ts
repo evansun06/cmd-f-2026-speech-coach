@@ -118,6 +118,10 @@ interface MockAuthData {
 
 interface MockSessionsData {
   sessions: CoachingSessionListItem[]
+  create_session_response?: {
+    id: string
+    title: string
+  }
   session_details?: Record<string, CoachingSessionDetail>
   timelines_by_session?: Record<string, Annotation[]>
   live_notes_by_session?: Record<string, string[]>
@@ -386,10 +390,11 @@ export const api = {
       return parseJsonResponse<CoachingSessionListItem[]>(response)
     },
 
-    async create(): Promise<SessionCreateResponse> {
+    async create(title: string): Promise<SessionCreateResponse> {
       if (USE_MOCK) {
         await delay(MOCK_DELAY_MS)
-        return { id: 'mock-123' }
+        const mockData = await getMockSessionsData()
+        return { id: mockData.create_session_response?.id ?? 'mock-123' }
       }
 
       const csrfToken = getCsrfTokenFromCookie()
@@ -398,8 +403,10 @@ export const api = {
         method: 'POST',
         credentials: 'include',
         headers: {
+          'Content-Type': 'application/json',
           'X-CSRFToken': csrfToken,
         },
+        body: JSON.stringify({ title }),
       })
 
       return parseJsonResponse<SessionCreateResponse>(response)

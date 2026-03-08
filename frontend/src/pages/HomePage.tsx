@@ -73,6 +73,7 @@ function HomePage() {
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [modalStep, setModalStep] = useState(1)
   const [videoSource, setVideoSource] = useState<VideoSource | null>(null)
+  const [sessionName, setSessionName] = useState('')
   const [videoFile, setVideoFile] = useState<File | null>(null)
   const [supportingPdfFiles, setSupportingPdfFiles] = useState<File[]>([])
   const [supportingText, setSupportingText] = useState('')
@@ -128,6 +129,7 @@ function HomePage() {
   const resetModalState = () => {
     setModalStep(1)
     setVideoSource(null)
+    setSessionName('')
     setVideoFile(null)
     setSupportingPdfFiles([])
     setSupportingText('')
@@ -205,6 +207,12 @@ function HomePage() {
       return
     }
 
+    const trimmedSessionName = sessionName.trim()
+    if (!trimmedSessionName) {
+      setModalError('Session name is required.')
+      return
+    }
+
     if (videoSource === 'upload' && !videoFile) {
       setModalError('Select one video file before confirming.')
       return
@@ -219,7 +227,7 @@ function HomePage() {
     setModalError(null)
 
     try {
-      const createResponse = await api.sessions.create()
+      const createResponse = await api.sessions.create(trimmedSessionName)
       const sessionId = createResponse.id
 
       await api.sessions.uploadVideo(sessionId, videoSource === 'upload' ? videoFile : null)
@@ -370,6 +378,17 @@ function HomePage() {
               </Stack>
             ) : (
               <Stack spacing={2}>
+                <TextField
+                  label="Session name"
+                  value={sessionName}
+                  onChange={(event) => setSessionName(event.target.value.slice(0, 100))}
+                  placeholder="e.g. Q3 Investor Pitch, Team Standup Practice"
+                  helperText={`${sessionName.length}/100`}
+                  required
+                  inputProps={{ maxLength: 100 }}
+                  fullWidth
+                />
+
                 <Stack spacing={1}>
                   <Typography variant="h6">Upload your presentation video</Typography>
                   <Button component="label" variant="outlined" sx={{ alignSelf: 'flex-start' }}>
@@ -475,7 +494,7 @@ function HomePage() {
             <Button
               onClick={handleConfirmSession}
               variant="contained"
-              disabled={isSubmitting}
+              disabled={isSubmitting || !sessionName.trim()}
               startIcon={isSubmitting ? <CircularProgress size={16} color="inherit" /> : undefined}
             >
               {isSubmitting ? 'Starting...' : 'Confirm'}
