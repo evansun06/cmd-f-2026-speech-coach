@@ -19,7 +19,7 @@ import {
   Typography,
 } from '@mui/material'
 import { useNavigate, useParams } from 'react-router-dom'
-import api, { API_BASE_URL } from '../api'
+import api from '../api'
 import type {
   Annotation,
   ApiError,
@@ -31,6 +31,11 @@ import type {
 const TERMINAL_STATUSES: SessionStatus[] = ['ready', 'failed', 'coach_failed']
 const TIMELINE_VISIBLE_STATUSES: SessionStatus[] = ['ml_ready', 'processing_coach', 'ready', 'coach_failed']
 const LIVE_NOTES_STATUSES: SessionStatus[] = ['processing_ml', 'ml_ready', 'processing_coach', 'coach_failed']
+const SEVERITY_COLOR = {
+  low: '#22c55e',
+  medium: '#f59e0b',
+  high: '#ef4444',
+} as const
 const FALLBACK_LIVE_NOTES = [
   'Opening pace is fast; likely adrenaline spike in first 20 seconds.',
   'Filler words are clustering around transitions ("um", "so", "like").',
@@ -473,9 +478,15 @@ function ChatPanel({ sessionId, sessionStatus }: { sessionId: string; sessionSta
   )
 }
 
-function VideoPlayer({ sessionId }: { sessionId: string }) {
-  const streamUrl = `${API_BASE_URL}/api/v1/sessions/${sessionId}/video-stream`
-
+function VideoPlayer({
+  videoUrl,
+  videoRef,
+  onTimeUpdate,
+}: {
+  videoUrl: string | null
+  videoRef: React.RefObject<HTMLVideoElement | null>
+  onTimeUpdate: () => void
+}) {
   return (
     <Card variant="outlined" sx={{ height: '100%' }}>
       <CardContent sx={{ p: 2.5 }}>
@@ -490,14 +501,31 @@ function VideoPlayer({ sessionId }: { sessionId: string }) {
               bgcolor: 'common.black',
             }}
           >
-            <video controls style={{ width: '100%', display: 'block' }} preload="metadata">
-              {/* TODO: real endpoint - GET /api/v1/sessions/:id/video-stream */}
-              <source src={streamUrl} type="video/mp4" />
-            </video>
+            {videoUrl ? (
+              <video
+                ref={videoRef}
+                src={videoUrl}
+                controls
+                preload="metadata"
+                onTimeUpdate={onTimeUpdate}
+                style={{ width: '100%', display: 'block' }}
+              />
+            ) : (
+              <Box
+                sx={{
+                  minHeight: 220,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  px: 2,
+                }}
+              >
+                <Typography variant="body2" color="text.secondary">
+                  Video will appear once upload is complete.
+                </Typography>
+              </Box>
+            )}
           </Box>
-          <Typography variant="body2" color="text.secondary">
-            Native controls provide play/pause and timeline scrubbing in this placeholder phase.
-          </Typography>
         </Stack>
       </CardContent>
     </Card>
@@ -508,10 +536,14 @@ function AnnotationTimeline({
   status,
   annotations,
   timelineError,
+  videoRef,
+  currentMs,
 }: {
   status: SessionStatus
   annotations: Annotation[]
   timelineError: string | null
+  videoRef: React.RefObject<HTMLVideoElement | null>
+  currentMs: number
 }) {
   if (!shouldShowTimeline(status)) {
     return (
@@ -537,6 +569,23 @@ function AnnotationTimeline({
       <CardContent sx={{ p: 2.5 }}>
         <Stack spacing={2}>
           <Typography variant="h6">Annotation Timeline</Typography>
+          <Stack direction="row" spacing={1.5} alignItems="center">
+            {(['high', 'medium', 'low'] as const).map((level) => (
+              <Stack direction="row" spacing={0.5} alignItems="center" key={level}>
+                <Box
+                  sx={{
+                    width: 10,
+                    height: 10,
+                    borderRadius: '2px',
+                    bgcolor: SEVERITY_COLOR[level],
+                  }}
+                />
+                <Typography variant="caption" color="text.secondary">
+                  {level}
+                </Typography>
+              </Stack>
+            ))}
+          </Stack>
           {timelineError && <Alert severity="warning">{timelineError}</Alert>}
 
           {annotations.length === 0 ? (
@@ -545,8 +594,32 @@ function AnnotationTimeline({
             </Typography>
           ) : (
             <Stack spacing={2}>
-              <TimelineTrack label="Audio" color="info.main" annotations={audioTrack} maxEndMs={maxEndMs} />
-              <TimelineTrack label="Video" color="secondary.main" annotations={videoTrack} maxEndMs={maxEndMs} />
+              <TimelineTrack
+                label="Audio"
+                color="info.main"
+                annotations={audioTrack}
+                maxEndMs={maxEndMs}
+                totalDurationMs={maxEndMs}
+                currentMs={currentMs}
+                onSeek={(ms) => {
+                  if (videoRef.current) {
+                    videoRef.current.currentTime = ms / 1000
+                  }
+                }}
+              />
+              <TimelineTrack
+                label="Video"
+                color="secondary.main"
+                annotations={videoTrack}
+                maxEndMs={maxEndMs}
+                totalDurationMs={maxEndMs}
+                currentMs={currentMs}
+                onSeek={(ms) => {
+                  if (videoRef.current) {
+                    videoRef.current.currentTime = ms / 1000
+                  }
+                }}
+              />
             </Stack>
           )}
         </Stack>
@@ -560,12 +633,20 @@ function TimelineTrack({
   color,
   annotations,
   maxEndMs,
+  totalDurationMs,
+  currentMs,
+  onSeek,
 }: {
   label: string
   color: string
   annotations: Annotation[]
   maxEndMs: number
+  totalDurationMs: number
+  currentMs: number
+  onSeek: (ms: number) => void
 }) {
+  const playheadPosition = Math.min(100, Math.max(0, (currentMs / totalDurationMs) * 100))
+
   return (
     <Stack spacing={1}>
       <Stack direction="row" justifyContent="space-between" alignItems="center">
@@ -587,8 +668,22 @@ function TimelineTrack({
         }}
       >
         <Divider sx={{ position: 'absolute', insetX: 0, top: '50%' }} />
+        <Box
+          sx={{
+            position: 'absolute',
+            top: 0,
+            bottom: 0,
+            width: '2px',
+            bgcolor: 'primary.main',
+            left: `${playheadPosition}%`,
+            pointerEvents: 'none',
+            zIndex: 2,
+          }}
+        />
         {annotations.map((annotation) => {
-          const position = Math.min(100, Math.max(0, (annotation.start_ms / maxEndMs) * 100))
+          const left = Math.min(100, Math.max(0, (annotation.start_ms / totalDurationMs) * 100))
+          const durationWidth = Math.max(0.8, ((annotation.end_ms - annotation.start_ms) / totalDurationMs) * 100)
+          const severityColor = SEVERITY_COLOR[annotation.severity]
 
           return (
             <Tooltip
@@ -598,18 +693,16 @@ function TimelineTrack({
               arrow
             >
               <Box
+                onClick={() => onSeek(annotation.start_ms)}
                 sx={{
                   position: 'absolute',
-                  left: `${position}%`,
+                  left: `${left}%`,
                   top: '50%',
-                  transform: 'translate(-50%, -50%)',
-                  width: 12,
-                  height: 12,
-                  borderRadius: '50%',
-                  bgcolor: color,
-                  border: '2px solid',
-                  borderColor: 'common.white',
-                  boxShadow: 1,
+                  transform: 'translateY(-50%)',
+                  width: `${durationWidth}%`,
+                  height: 14,
+                  borderRadius: '3px',
+                  bgcolor: severityColor ?? color,
                   cursor: 'pointer',
                 }}
               />
@@ -624,6 +717,8 @@ function TimelineTrack({
 function DashboardPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const [currentMs, setCurrentMs] = useState(0)
 
   const [session, setSession] = useState<CoachingSessionDetail | null>(null)
   const [annotations, setAnnotations] = useState<Annotation[]>([])
@@ -930,11 +1025,25 @@ function DashboardPage() {
             </Box>
 
             <Box sx={{ gridArea: 'video' }}>
-              <VideoPlayer sessionId={session.id} />
+              <VideoPlayer
+                videoUrl={session.video_file_url}
+                videoRef={videoRef}
+                onTimeUpdate={() => {
+                  if (videoRef.current) {
+                    setCurrentMs(videoRef.current.currentTime * 1000)
+                  }
+                }}
+              />
             </Box>
 
             <Box sx={{ gridArea: 'timeline' }}>
-              <AnnotationTimeline status={session.status} annotations={annotations} timelineError={timelineError} />
+              <AnnotationTimeline
+                status={session.status}
+                annotations={annotations}
+                timelineError={timelineError}
+                videoRef={videoRef}
+                currentMs={currentMs}
+              />
             </Box>
           </Box>
         )}
