@@ -24,6 +24,8 @@ import type {
   Annotation,
   ApiError,
   ChatMessage,
+  CoachNote,
+  CoachProgress,
   CoachingSessionDetail,
   SessionStatus,
 } from '../api'
@@ -35,6 +37,12 @@ const SEVERITY_COLOR = {
   low: '#22c55e',
   medium: '#f59e0b',
   high: '#ef4444',
+} as const
+const STAGE_STATUS_COLOR = {
+  pending: '#6b7280',
+  processing: '#f59e0b',
+  completed: '#22c55e',
+  failed: '#ef4444',
 } as const
 const FALLBACK_LIVE_NOTES = [
   'Opening pace is fast; likely adrenaline spike in first 20 seconds.',
@@ -95,8 +103,51 @@ function shouldShowLiveNotes(status: SessionStatus): boolean {
   return LIVE_NOTES_STATUSES.includes(status)
 }
 
+function CoachNoteCard({ note }: { note: CoachNote }) {
+  const [isExpanded, setIsExpanded] = useState(!note.default_collapsed)
+
+  return (
+    <Card variant="outlined">
+      <CardContent sx={{ p: 1.25, '&:last-child': { pb: 1.25 } }}>
+        <Stack spacing={1}>
+          <Box
+            onClick={() => setIsExpanded((previous) => !previous)}
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              cursor: 'pointer',
+            }}
+          >
+            <Typography variant="subtitle2">{note.title}</Typography>
+            <Typography variant="caption" color="text.secondary">
+              {isExpanded ? 'v' : '>'}
+            </Typography>
+          </Box>
+
+          <Collapse in={isExpanded}>
+            <Stack spacing={1}>
+              <Typography variant="body2" color="text.secondary">
+                {note.body}
+              </Typography>
+              {note.evidence_refs.length > 0 && (
+                <Stack direction="row" spacing={0.75} useFlexGap flexWrap="wrap">
+                  {note.evidence_refs.map((evidenceRef) => (
+                    <Chip key={evidenceRef} size="small" label={evidenceRef} />
+                  ))}
+                </Stack>
+              )}
+            </Stack>
+          </Collapse>
+        </Stack>
+      </CardContent>
+    </Card>
+  )
+}
+
 function CoachPanelContent({
   session,
+  coachProgress,
   liveNotes,
   isLive,
   onRetry,
@@ -105,6 +156,7 @@ function CoachPanelContent({
   showReadyTransition,
 }: {
   session: CoachingSessionDetail
+  coachProgress: CoachProgress | null
   liveNotes: string[]
   isLive: boolean
   onRetry: () => void
@@ -137,8 +189,48 @@ function CoachPanelContent({
         </Fade>
 
         <Typography variant="h6">Coach Review</Typography>
-        {/* TODO: wire when backend adds coach_progress endpoint */}
-        <Alert severity="info">Coach review sections are unavailable until coach_progress is added to the backend response.</Alert>
+        {!coachProgress || coachProgress.stages.length === 0 ? (
+          <Alert severity="info">Coach review sections are unavailable until coach_progress is added to the backend response.</Alert>
+        ) : (
+          <Stack spacing={1.25}>
+            {coachProgress.stages.map((stage) => (
+              <Card key={stage.stage_key} variant="outlined">
+                <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
+                  <Stack spacing={1.25}>
+                    <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
+                      <Stack direction="row" alignItems="center" spacing={0.75}>
+                        <Box
+                          sx={{
+                            width: 8,
+                            height: 8,
+                            borderRadius: '50%',
+                            bgcolor: STAGE_STATUS_COLOR[stage.status],
+                          }}
+                        />
+                        <Typography variant="subtitle2">{stage.label}</Typography>
+                      </Stack>
+                      <Typography variant="caption" color="text.secondary" sx={{ textAlign: 'right' }}>
+                        {formatStatusLabel(stage.status)}
+                      </Typography>
+                    </Stack>
+
+                    {stage.notes.length > 0 ? (
+                      <Stack spacing={1}>
+                        {stage.notes.map((note) => (
+                          <CoachNoteCard key={note.note_id} note={note} />
+                        ))}
+                      </Stack>
+                    ) : (
+                      <Typography variant="body2" color="text.secondary">
+                        No notes yet.
+                      </Typography>
+                    )}
+                  </Stack>
+                </CardContent>
+              </Card>
+            ))}
+          </Stack>
+        )}
       </Stack>
     )
   }
@@ -1009,6 +1101,7 @@ function DashboardPage() {
                     {leftPanelTab === 'coach' ? (
                       <CoachPanelContent
                         session={session}
+                        coachProgress={session.coach_progress}
                         liveNotes={currentLiveNotes}
                         isLive={shouldShowLiveNotes(session.status)}
                         onRetry={handleRetryCoach}

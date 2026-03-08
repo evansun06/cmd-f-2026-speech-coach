@@ -1,5 +1,6 @@
-export const USE_MOCK = true
+export const CHAT_USE_MOCK = false
 export const SESSIONS_USE_MOCK = false
+export const DEMO_AI_WALKTHROUGH = true
 const AUTH_USE_MOCK = false
 export const API_BASE_URL = 'http://localhost:8000'
 
@@ -101,6 +102,7 @@ export interface CoachingSessionDetail {
   supplementary_pdf_2_url: string | null
   supplementary_pdf_3_url: string | null
   speaker_context: string
+  coach_progress: CoachProgress | null
 }
 
 export interface SessionCreateResponse {
@@ -163,6 +165,41 @@ interface MockSessionsData {
 }
 
 const MOCK_DELAY_MS = 1000
+const demoSessionStartTimes = new Map<string, number>()
+
+const DEMO_STATUS_SCHEDULE: Array<{ status: SessionStatus; fromMs: number }> = [
+  { status: 'draft', fromMs: 0 },
+  { status: 'media_attached', fromMs: 6000 },
+  { status: 'queued_ml', fromMs: 12000 },
+  { status: 'processing_ml', fromMs: 18000 },
+  { status: 'ml_ready', fromMs: 30000 },
+  { status: 'processing_coach', fromMs: 42000 },
+  { status: 'ready', fromMs: 54000 },
+]
+
+function getDemoStatus(sessionId: string): SessionStatus {
+  const startedAt = demoSessionStartTimes.get(sessionId)
+  if (!startedAt) {
+    return 'draft'
+  }
+
+  const elapsed = Date.now() - startedAt
+  let current: SessionStatus = 'draft'
+  for (const entry of DEMO_STATUS_SCHEDULE) {
+    if (elapsed >= entry.fromMs) {
+      current = entry.status
+    }
+  }
+  return current
+}
+
+function getDemoElapsedMs(sessionId: string): number {
+  const startedAt = demoSessionStartTimes.get(sessionId)
+  if (!startedAt) {
+    return 0
+  }
+  return Date.now() - startedAt
+}
 
 function getCookieValue(name: string): string | null {
   const cookies = document.cookie ? document.cookie.split('; ') : []
@@ -284,6 +321,7 @@ function getMockSessionDetail(mockData: MockSessionsData, sessionId: string): Co
       supplementary_pdf_2_url: null,
       supplementary_pdf_3_url: null,
       speaker_context: '',
+      coach_progress: null,
     }
   }
 
@@ -414,6 +452,10 @@ export const api = {
   },
   sessions: {
     async list(): Promise<CoachingSessionListItem[]> {
+      if (DEMO_AI_WALKTHROUGH) {
+        return []
+      }
+
       if (SESSIONS_USE_MOCK) {
         const mockData = await getMockSessionsData()
         return mockData.sessions
@@ -429,6 +471,17 @@ export const api = {
     },
 
     async create(title: string): Promise<SessionCreateResponse> {
+      if (DEMO_AI_WALKTHROUGH) {
+        const demoSessionId = `demo-${Date.now()}`
+        demoSessionStartTimes.set(demoSessionId, Date.now())
+        return {
+          id: demoSessionId,
+          title,
+          status: 'draft',
+          created_at: new Date().toISOString(),
+        }
+      }
+
       if (SESSIONS_USE_MOCK) {
         await delay(MOCK_DELAY_MS)
         const mockData = await getMockSessionsData()
@@ -456,6 +509,11 @@ export const api = {
     },
 
     async uploadVideo(sessionId: string, videoFile: File | null): Promise<void> {
+      if (DEMO_AI_WALKTHROUGH) {
+        await delay(800)
+        return
+      }
+
       if (SESSIONS_USE_MOCK) {
         await delay(MOCK_DELAY_MS)
         return
@@ -485,6 +543,11 @@ export const api = {
     },
 
     async uploadAssets(sessionId: string, payload: SessionAssetsPayload): Promise<void> {
+      if (DEMO_AI_WALKTHROUGH) {
+        await delay(400)
+        return
+      }
+
       const speakerContext = payload.speakerContext?.trim() ?? ''
       const pdfFiles = payload.pdfFiles ?? []
       const hasAssets = pdfFiles.length > 0 || Boolean(speakerContext)
@@ -528,6 +591,12 @@ export const api = {
     },
 
     async startAnalysis(sessionId: string): Promise<void> {
+      if (DEMO_AI_WALKTHROUGH) {
+        demoSessionStartTimes.set(sessionId, Date.now())
+        await delay(300)
+        return
+      }
+
       if (SESSIONS_USE_MOCK) {
         await delay(MOCK_DELAY_MS)
         return
@@ -547,6 +616,36 @@ export const api = {
     },
 
     async getById(sessionId: string): Promise<CoachingSessionDetail> {
+      if (DEMO_AI_WALKTHROUGH) {
+        const mockData = await getMockSessionsData()
+        const base = Object.values(mockData.session_details ?? {})[0] as Partial<CoachingSessionDetail> | undefined
+
+        if (!base) {
+          throw {
+            message: 'Session not found.',
+            status: 404,
+          } satisfies ApiError
+        }
+
+        const status = getDemoStatus(sessionId)
+        const nowIso = new Date().toISOString()
+
+        return {
+          ...base,
+          id: sessionId,
+          title: base.title ?? 'Demo Session',
+          status,
+          created_at: base.created_at ?? nowIso,
+          updated_at: nowIso,
+          video_file_url: '/demo/sample.mp4',
+          supplementary_pdf_1_url: base.supplementary_pdf_1_url ?? null,
+          supplementary_pdf_2_url: base.supplementary_pdf_2_url ?? null,
+          supplementary_pdf_3_url: base.supplementary_pdf_3_url ?? null,
+          speaker_context: base.speaker_context ?? '',
+          coach_progress: base.coach_progress ?? null,
+        }
+      }
+
       if (SESSIONS_USE_MOCK) {
         await delay(MOCK_DELAY_MS)
         const mockData = await getMockSessionsData()
@@ -563,6 +662,17 @@ export const api = {
     },
 
     async getTimeline(sessionId: string): Promise<Annotation[]> {
+      if (DEMO_AI_WALKTHROUGH) {
+        const status = getDemoStatus(sessionId)
+        const TIMELINE_VISIBLE: SessionStatus[] = ['ml_ready', 'processing_coach', 'ready', 'coach_failed']
+        if (!TIMELINE_VISIBLE.includes(status)) {
+          return []
+        }
+
+        const mockData = await getMockSessionsData()
+        return getMockTimeline(mockData, Object.keys(mockData.timelines_by_session ?? {})[0] ?? sessionId)
+      }
+
       if (SESSIONS_USE_MOCK) {
         await delay(MOCK_DELAY_MS)
         const mockData = await getMockSessionsData()
@@ -579,6 +689,21 @@ export const api = {
     },
 
     async getLiveNotes(sessionId: string): Promise<string[]> {
+      if (DEMO_AI_WALKTHROUGH) {
+        const elapsed = getDemoElapsedMs(sessionId)
+        const status = getDemoStatus(sessionId)
+        const LIVE_NOTE_STATUSES: SessionStatus[] = ['processing_ml', 'ml_ready', 'processing_coach']
+        if (!LIVE_NOTE_STATUSES.includes(status)) {
+          return []
+        }
+
+        const mockData = await getMockSessionsData()
+        const firstLiveNotesKey = Object.keys(mockData.live_notes_by_session ?? {})[0] ?? sessionId
+        const notes = getMockLiveNotes(mockData, firstLiveNotesKey)
+
+        return notes.slice(0, Math.ceil((elapsed / 54000) * notes.length))
+      }
+
       if (SESSIONS_USE_MOCK) {
         await delay(250)
         const mockData = await getMockSessionsData()
@@ -592,7 +717,7 @@ export const api = {
 
   chat: {
     async getHistory(sessionId: string): Promise<ChatMessage[]> {
-      if (USE_MOCK) {
+      if (CHAT_USE_MOCK) {
         await delay(400)
         const mockData = await getMockSessionsData()
         return getMockChatHistory(mockData, sessionId)
@@ -608,7 +733,7 @@ export const api = {
     },
 
     async sendMessage(sessionId: string, message: string): Promise<ChatSendResponse> {
-      if (USE_MOCK) {
+      if (CHAT_USE_MOCK) {
         await delay(300)
         if (!message.trim()) {
           throw {
@@ -636,7 +761,7 @@ export const api = {
     },
 
     async streamResponse(sessionId: string, responseId: string, callbacks: ChatStreamCallbacks): Promise<void> {
-      if (USE_MOCK) {
+      if (CHAT_USE_MOCK) {
         const reasoningTokens = [
           'Scanning',
           'delivery',
