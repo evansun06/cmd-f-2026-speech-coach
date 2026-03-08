@@ -19,7 +19,7 @@ import {
   Typography,
 } from '@mui/material'
 import { useNavigate } from 'react-router-dom'
-import api, { USE_MOCK } from '../api'
+import api, { SESSIONS_USE_MOCK } from '../api'
 import type { ApiError, CoachingSessionListItem, SessionAssetsPayload } from '../api'
 
 type VideoSource = 'upload' | 'record'
@@ -218,7 +218,7 @@ function HomePage() {
       return
     }
 
-    if (videoSource === 'record' && !USE_MOCK) {
+    if (videoSource === 'record' && !SESSIONS_USE_MOCK) {
       setModalError('Record Now is coming soon. Please use Upload Video for now.')
       return
     }
@@ -234,7 +234,7 @@ function HomePage() {
 
       const optionalAssets: SessionAssetsPayload = {
         pdfFiles: supportingPdfFiles,
-        supportingText,
+        speakerContext: supportingText,
       }
       const hasOptionalAssets = Boolean(supportingPdfFiles.length > 0 || supportingText.trim())
 
@@ -299,24 +299,32 @@ function HomePage() {
               </Box>
             ) : (
               <Stack spacing={2}>
-                {sessions.map((session) => (
-                  <Card key={session.id} variant="outlined">
-                    <CardContent>
-                      <Stack spacing={1.5}>
-                        <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={2}>
-                          <Typography variant="h6">{session.title}</Typography>
-                          <Chip label={formatStatusLabel(session.status)} size="small" />
-                        </Stack>
-                        <Typography color="text.secondary" variant="body2">
-                          Created: {formatCreatedDate(session.created_at)}
-                        </Typography>
-                        <Typography color="text.secondary" variant="body2">
-                          Duration: {formatDuration(session.duration_seconds)}
-                        </Typography>
-                      </Stack>
-                    </CardContent>
-                  </Card>
-                ))}
+                {sessions.map((session) => {
+                  const sessionDuration = (session as unknown as { duration_seconds?: number }).duration_seconds
+
+                  return (
+                    <Card key={session.id} variant="outlined">
+                      <CardActionArea onClick={() => navigate(`/sessions/${session.id}`)} sx={{ cursor: 'pointer' }}>
+                        <CardContent>
+                          <Stack spacing={1.5}>
+                            <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={2}>
+                              <Typography variant="h6">{session.title}</Typography>
+                              <Chip label={formatStatusLabel(session.status)} size="small" />
+                            </Stack>
+                            <Typography color="text.secondary" variant="body2">
+                              Created: {formatCreatedDate(session.created_at)}
+                            </Typography>
+                            {typeof sessionDuration === 'number' && (
+                              <Typography color="text.secondary" variant="body2">
+                                Duration: {formatDuration(sessionDuration)}
+                              </Typography>
+                            )}
+                          </Stack>
+                        </CardContent>
+                      </CardActionArea>
+                    </Card>
+                  )
+                })}
               </Stack>
             )}
           </>
