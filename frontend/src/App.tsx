@@ -31,7 +31,8 @@ function AppRoutes() {
       setIsCheckingAuth(true)
 
       try {
-        await api.auth.getCurrentUser()
+        const user = await api.auth.getCurrentUser()
+        console.log(`Authenticated user: ${user.name || user.email}`)
         if (isMounted) {
           setAuthStatus('authenticated')
         }
