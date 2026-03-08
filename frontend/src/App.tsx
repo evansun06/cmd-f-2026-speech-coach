@@ -2,6 +2,7 @@ import { CircularProgress, Stack, Typography } from '@mui/material'
 import { useEffect, useState } from 'react'
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import api from './api'
+import DashboardPage from './pages/DashboardPage'
 import HomePage from './pages/HomePage'
 import LoginPage from './pages/LoginPage'
 import SignupPage from './pages/SignupPage'
@@ -61,6 +62,7 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/" element={authStatus === 'authenticated' ? <HomePage /> : <Navigate to="/login" replace />} />
+      <Route path="/sessions/:id" element={authStatus === 'authenticated' ? <DashboardPage /> : <Navigate to="/login" replace />} />
       <Route path="/login" element={authStatus === 'authenticated' ? <Navigate to="/" replace /> : <LoginPage />} />
       <Route path="/signup" element={authStatus === 'authenticated' ? <Navigate to="/" replace /> : <SignupPage />} />
       <Route path="*" element={<Navigate to={authStatus === 'authenticated' ? '/' : '/login'} replace />} />
