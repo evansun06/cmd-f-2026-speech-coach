@@ -42,9 +42,30 @@ export interface CoachStage {
   notes: CoachNote[]
 }
 
+export interface CoachAgentProgress {
+  agent_execution_id: string
+  execution_index: number
+  agent_kind: 'subagent' | 'flagship_periodic' | 'flagship_final'
+  agent_name: string
+  status: CoachStageStatus
+  window_start_ms: number | null
+  window_end_ms: number | null
+  input_seq_from: number | null
+  input_seq_to: number | null
+  output_seq_to: number | null
+  started_at: string | null
+  completed_at: string | null
+  last_heartbeat_at: string | null
+}
+
 export interface CoachProgress {
   status: CoachProgressStatus
   current_stage: string
+  active_run_id?: string | null
+  run_index?: number | null
+  latest_ledger_sequence?: number
+  updated_at?: string
+  agent_progress?: CoachAgentProgress[]
   stages: CoachStage[]
 }
 
