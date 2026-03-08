@@ -1,4 +1,5 @@
 export const USE_MOCK = true
+export const SESSIONS_USE_MOCK = false
 const AUTH_USE_MOCK = false
 export const API_BASE_URL = 'http://localhost:8000'
 
@@ -84,22 +85,34 @@ export interface Annotation {
 export interface CoachingSessionListItem {
   id: string
   title: string
-  created_at: string
-  duration_seconds: number
   status: SessionStatus
+  created_at: string
+  updated_at: string
 }
 
-export interface CoachingSessionDetail extends CoachingSessionListItem {
-  coach_progress: CoachProgress
+export interface CoachingSessionDetail {
+  id: string
+  title: string
+  status: SessionStatus
+  created_at: string
+  updated_at: string
+  video_file_url: string | null
+  supplementary_pdf_1_url: string | null
+  supplementary_pdf_2_url: string | null
+  supplementary_pdf_3_url: string | null
+  speaker_context: string
 }
 
 export interface SessionCreateResponse {
   id: string
+  title: string
+  status: SessionStatus
+  created_at: string
 }
 
 export interface SessionAssetsPayload {
   pdfFiles?: File[] | null
-  supportingText?: string
+  speakerContext?: string
 }
 
 export type ChatRole = 'user' | 'assistant'
@@ -261,12 +274,16 @@ function getMockSessionDetail(mockData: MockSessionsData, sessionId: string): Co
   const listSession = mockData.sessions.find((session) => session.id === sessionId)
   if (listSession) {
     return {
-      ...listSession,
-      coach_progress: {
-        status: 'pending',
-        current_stage: '',
-        stages: [],
-      },
+      id: listSession.id,
+      title: listSession.title,
+      status: listSession.status,
+      created_at: listSession.created_at,
+      updated_at: listSession.updated_at,
+      video_file_url: null,
+      supplementary_pdf_1_url: null,
+      supplementary_pdf_2_url: null,
+      supplementary_pdf_3_url: null,
+      speaker_context: '',
     }
   }
 
@@ -397,7 +414,7 @@ export const api = {
   },
   sessions: {
     async list(): Promise<CoachingSessionListItem[]> {
-      if (USE_MOCK) {
+      if (SESSIONS_USE_MOCK) {
         const mockData = await getMockSessionsData()
         return mockData.sessions
       }
@@ -412,10 +429,15 @@ export const api = {
     },
 
     async create(title: string): Promise<SessionCreateResponse> {
-      if (USE_MOCK) {
+      if (SESSIONS_USE_MOCK) {
         await delay(MOCK_DELAY_MS)
         const mockData = await getMockSessionsData()
-        return { id: mockData.create_session_response?.id ?? 'mock-123' }
+        return {
+          id: mockData.create_session_response?.id ?? 'mock-123',
+          title: mockData.create_session_response?.title ?? title,
+          status: 'draft',
+          created_at: new Date().toISOString(),
+        }
       }
 
       const csrfToken = getCsrfTokenFromCookie()
@@ -434,7 +456,7 @@ export const api = {
     },
 
     async uploadVideo(sessionId: string, videoFile: File | null): Promise<void> {
-      if (USE_MOCK) {
+      if (SESSIONS_USE_MOCK) {
         await delay(MOCK_DELAY_MS)
         return
       }
@@ -447,7 +469,7 @@ export const api = {
 
       const csrfToken = getCsrfTokenFromCookie()
       const formData = new FormData()
-      formData.append('video', videoFile)
+      formData.append('video_file', videoFile)
 
       // TODO: real endpoint - POST /api/v1/sessions/:id/video
       const response = await fetch(`${API_BASE_URL}/api/v1/sessions/${sessionId}/video`, {
@@ -463,28 +485,33 @@ export const api = {
     },
 
     async uploadAssets(sessionId: string, payload: SessionAssetsPayload): Promise<void> {
-      const supportingText = payload.supportingText?.trim() ?? ''
+      const speakerContext = payload.speakerContext?.trim() ?? ''
       const pdfFiles = payload.pdfFiles ?? []
-      const hasAssets = pdfFiles.length > 0 || Boolean(supportingText)
+      const hasAssets = pdfFiles.length > 0 || Boolean(speakerContext)
 
       if (!hasAssets) {
         return
       }
 
-      if (USE_MOCK) {
+      if (SESSIONS_USE_MOCK) {
         await delay(MOCK_DELAY_MS)
         return
       }
 
       const csrfToken = getCsrfTokenFromCookie()
       const formData = new FormData()
-
-      for (const pdfFile of pdfFiles) {
-        formData.append('supporting_pdfs', pdfFile)
+      const [pdf1, pdf2, pdf3] = pdfFiles
+      if (pdf1) {
+        formData.append('supplementary_pdf_1', pdf1)
       }
-
-      if (supportingText) {
-        formData.append('supporting_text', supportingText)
+      if (pdf2) {
+        formData.append('supplementary_pdf_2', pdf2)
+      }
+      if (pdf3) {
+        formData.append('supplementary_pdf_3', pdf3)
+      }
+      if (speakerContext) {
+        formData.append('speaker_context', speakerContext)
       }
 
       // TODO: real endpoint - POST /api/v1/sessions/:id/assets
@@ -501,7 +528,7 @@ export const api = {
     },
 
     async startAnalysis(sessionId: string): Promise<void> {
-      if (USE_MOCK) {
+      if (SESSIONS_USE_MOCK) {
         await delay(MOCK_DELAY_MS)
         return
       }
@@ -520,7 +547,7 @@ export const api = {
     },
 
     async getById(sessionId: string): Promise<CoachingSessionDetail> {
-      if (USE_MOCK) {
+      if (SESSIONS_USE_MOCK) {
         await delay(MOCK_DELAY_MS)
         const mockData = await getMockSessionsData()
         return getMockSessionDetail(mockData, sessionId)
@@ -536,7 +563,7 @@ export const api = {
     },
 
     async getTimeline(sessionId: string): Promise<Annotation[]> {
-      if (USE_MOCK) {
+      if (SESSIONS_USE_MOCK) {
         await delay(MOCK_DELAY_MS)
         const mockData = await getMockSessionsData()
         return getMockTimeline(mockData, sessionId)
@@ -552,7 +579,7 @@ export const api = {
     },
 
     async getLiveNotes(sessionId: string): Promise<string[]> {
-      if (USE_MOCK) {
+      if (SESSIONS_USE_MOCK) {
         await delay(250)
         const mockData = await getMockSessionsData()
         return getMockLiveNotes(mockData, sessionId)

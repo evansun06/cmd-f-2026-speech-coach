@@ -24,8 +24,6 @@ import type {
   Annotation,
   ApiError,
   ChatMessage,
-  CoachStage,
-  CoachStageStatus,
   CoachingSessionDetail,
   SessionStatus,
 } from '../api'
@@ -92,48 +90,8 @@ function shouldShowLiveNotes(status: SessionStatus): boolean {
   return LIVE_NOTES_STATUSES.includes(status)
 }
 
-function getStageColor(status: CoachStageStatus): string {
-  switch (status) {
-    case 'completed':
-      return 'success.main'
-    case 'processing':
-      return 'warning.main'
-    case 'failed':
-      return 'error.main'
-    default:
-      return 'grey.500'
-  }
-}
-
-function StageStatusIcon({ status }: { status: CoachStageStatus }) {
-  if (status === 'processing') {
-    return <CircularProgress size={16} />
-  }
-
-  return (
-    <Box
-      sx={{
-        width: 18,
-        height: 18,
-        borderRadius: '50%',
-        bgcolor: getStageColor(status),
-        color: 'common.white',
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        fontSize: 12,
-        fontWeight: 700,
-      }}
-    >
-      {status === 'completed' ? '✓' : status === 'failed' ? '!' : ''}
-    </Box>
-  )
-}
-
 function CoachPanelContent({
   session,
-  noteExpanded,
-  onToggleNote,
   liveNotes,
   isLive,
   onRetry,
@@ -142,8 +100,6 @@ function CoachPanelContent({
   showReadyTransition,
 }: {
   session: CoachingSessionDetail
-  noteExpanded: Record<string, boolean>
-  onToggleNote: (noteId: string) => void
   liveNotes: string[]
   isLive: boolean
   onRetry: () => void
@@ -151,8 +107,6 @@ function CoachPanelContent({
   retryError: string | null
   showReadyTransition: boolean
 }) {
-  const stages = session.coach_progress?.stages ?? []
-
   if (session.status === 'ready') {
     return (
       <Stack spacing={2}>
@@ -178,96 +132,8 @@ function CoachPanelContent({
         </Fade>
 
         <Typography variant="h6">Coach Review</Typography>
-
-        {stages.length === 0 ? (
-          <Alert severity="info">Coach stages are not available yet.</Alert>
-        ) : (
-          <Stack spacing={1.5}>
-            {stages.map((stage: CoachStage) => {
-              const summary =
-                stage.notes[0]?.title ||
-                (stage.status === 'completed'
-                  ? 'Completed review.'
-                  : stage.status === 'processing'
-                    ? 'Review still processing.'
-                    : stage.status === 'failed'
-                      ? 'Review failed for this section.'
-                      : 'Pending review.')
-
-              return (
-                <Card key={stage.stage_key} variant="outlined">
-                  <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
-                    <Stack spacing={1.25}>
-                      <Stack direction="row" spacing={1} alignItems="center">
-                        <StageStatusIcon status={stage.status} />
-                        <Typography variant="subtitle2">{stage.label}</Typography>
-                        <Chip
-                          size="small"
-                          label={formatStatusLabel(stage.status)}
-                          sx={{
-                            ml: 'auto',
-                            bgcolor: stage.status === 'completed' ? 'success.50' : stage.status === 'processing' ? 'warning.50' : 'grey.100',
-                            color:
-                              stage.status === 'completed'
-                                ? 'success.dark'
-                                : stage.status === 'processing'
-                                  ? 'warning.dark'
-                                  : 'text.secondary',
-                          }}
-                        />
-                      </Stack>
-
-                      <Typography variant="body2" color="text.secondary">
-                        Summary: {summary}
-                      </Typography>
-
-                      {stage.notes.length === 0 ? (
-                        <Typography variant="caption" color="text.secondary">
-                          No notes yet for this stage.
-                        </Typography>
-                      ) : (
-                        <Stack spacing={1}>
-                          {stage.notes.map((note) => {
-                            const isExpanded = noteExpanded[note.note_id] ?? !note.default_collapsed
-
-                            return (
-                              <Card key={note.note_id} variant="outlined" sx={{ bgcolor: 'grey.50' }}>
-                                <CardContent sx={{ p: 1.25, '&:last-child': { pb: 1.25 } }}>
-                                  <Stack spacing={1}>
-                                    <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
-                                      <Typography variant="body2" fontWeight={600}>
-                                        {note.title}
-                                      </Typography>
-                                      <Button size="small" onClick={() => onToggleNote(note.note_id)}>
-                                        {isExpanded ? 'Hide' : 'Show'}
-                                      </Button>
-                                    </Stack>
-                                    <Collapse in={isExpanded}>
-                                      <Stack spacing={1}>
-                                        <Typography variant="body2" color="text.secondary">
-                                          {note.body}
-                                        </Typography>
-                                        {note.evidence_refs.length > 0 && (
-                                          <Typography variant="caption" color="text.secondary">
-                                            Evidence: {note.evidence_refs.join(', ')}
-                                          </Typography>
-                                        )}
-                                      </Stack>
-                                    </Collapse>
-                                  </Stack>
-                                </CardContent>
-                              </Card>
-                            )
-                          })}
-                        </Stack>
-                      )}
-                    </Stack>
-                  </CardContent>
-                </Card>
-              )
-            })}
-          </Stack>
-        )}
+        {/* TODO: wire when backend adds coach_progress endpoint */}
+        <Alert severity="info">Coach review sections are unavailable until coach_progress is added to the backend response.</Alert>
       </Stack>
     )
   }
@@ -774,7 +640,6 @@ function DashboardPage() {
   const [forceCoachFailedPolling, setForceCoachFailedPolling] = useState(false)
 
   const [leftPanelTab, setLeftPanelTab] = useState<LeftPanelTab>('coach')
-  const [noteExpanded, setNoteExpanded] = useState<Record<string, boolean>>({})
   const [showReadyTransition, setShowReadyTransition] = useState(false)
   const previousStatus = useRef<SessionStatus | null>(null)
 
@@ -967,31 +832,6 @@ function DashboardPage() {
     }
   }, [forceCoachFailedPolling, id, pollRestartKey])
 
-  useEffect(() => {
-    if (!session) {
-      return
-    }
-
-    setNoteExpanded((previous) => {
-      const next = { ...previous }
-      for (const stage of session.coach_progress.stages) {
-        for (const note of stage.notes) {
-          if (next[note.note_id] === undefined) {
-            next[note.note_id] = !note.default_collapsed
-          }
-        }
-      }
-      return next
-    })
-  }, [session])
-
-  const handleToggleNote = (noteId: string) => {
-    setNoteExpanded((previous) => ({
-      ...previous,
-      [noteId]: !previous[noteId],
-    }))
-  }
-
   const handleRetryCoach = async () => {
     if (!session) {
       return
@@ -1074,8 +914,6 @@ function DashboardPage() {
                     {leftPanelTab === 'coach' ? (
                       <CoachPanelContent
                         session={session}
-                        noteExpanded={noteExpanded}
-                        onToggleNote={handleToggleNote}
                         liveNotes={currentLiveNotes}
                         isLive={shouldShowLiveNotes(session.status)}
                         onRetry={handleRetryCoach}
