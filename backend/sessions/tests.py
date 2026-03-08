@@ -109,11 +109,20 @@ class CoachingSessionModelTests(TestCase):
     def test_session_defaults(self):
         session = CoachingSession.objects.create(user=self.user)
 
+        self.assertEqual(session.title, "Untitled Session")
         self.assertEqual(session.status, SessionStatus.DRAFT)
         self.assertEqual(session.speaker_context, "")
         self.assertFalse(session.video_file)
         self.assertIsNone(session.ml_task_id)
         self.assertIsNone(session.coach_task_id)
+
+    def test_session_can_store_custom_title(self):
+        session = CoachingSession.objects.create(
+            user=self.user,
+            title="Demo Day Runthrough",
+        )
+
+        self.assertEqual(session.title, "Demo Day Runthrough")
 
     def test_user_can_have_multiple_sessions(self):
         first = CoachingSession.objects.create(user=self.user)
